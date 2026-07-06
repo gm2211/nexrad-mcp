@@ -20,6 +20,50 @@ actual data with [Py-ART](https://arm-doe.github.io/pyart/) and
 *"what's the CC over my house right now, and is that a debris signature or
 just clutter?"* — the same interrogation you'd do by hand in RadarScope.
 
+## For AI agents: self-install
+
+If you are an AI agent with shell access and want to use this server, install
+and register it in one command (Claude Code):
+
+```bash
+claude mcp add nexrad -- uvx --from git+https://github.com/gm2211/nexrad-mcp nexrad-mcp
+```
+
+Verify the installation by piping an `initialize` + `tools/list` JSON-RPC
+handshake into the server and checking that 13 tools are listed:
+
+```bash
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  | uvx --from git+https://github.com/gm2211/nexrad-mcp nexrad-mcp
+```
+
+Expect a `tools/list` response containing 13 tools. Note that macOS has no
+`timeout` command; if you need a time limit, prefix the pipeline with
+`perl -e 'alarm 120; exec @ARGV'` instead.
+
+The first run downloads heavy dependencies (Py-ART, scipy, and friends), so
+allow a few minutes before deciding it has hung. Subsequent runs start in
+seconds from uv's cache.
+
+If a pre-0.2.0 version of this server was installed before, run
+`uv cache clean nexrad-mcp` once — otherwise uv stays pinned to the old
+commit.
+
+Agents without shell access (for example, claude.ai web chat) cannot
+self-install this way. In that case the server must be hosted remotely
+(`nexrad-mcp --transport http`) and added as a custom connector by the user,
+or wired into Claude Desktop's `claude_desktop_config.json` by the user.
+
+Sandboxed agents with a shell but no control over their MCP client config
+(for example, Cowork sessions) don't need MCP registration at all: call the
+library directly instead, e.g.
+`uvx --from git+https://github.com/gm2211/nexrad-mcp python -c "from nexrad_mcp.forecast import get_hourly_forecast; print(get_hourly_forecast(38.9, -77.0, 6))"`
+— every MCP tool is a plain function in `nexrad_mcp.radar`, `.level3`,
+`.forecast`, `.lightning`, and `.warnings`.
+
 ## Installation
 
 Requires [uv](https://docs.astral.sh/uv/). The first run is slow (a minute or
@@ -53,6 +97,17 @@ uvx --from git+https://github.com/gm2211/nexrad-mcp nexrad-mcp
 ```
 
 (stdio transport; no API keys or credentials — all data sources are public.)
+
+**Transport flags** — by default the server speaks stdio. To host it over
+streamable HTTP instead (e.g. as a remote connector), use:
+
+```bash
+nexrad-mcp --transport http --host 127.0.0.1 --port 8748
+```
+
+- `--transport`: `stdio` (default) or `http`
+- `--host`: bind address for http (default `127.0.0.1`)
+- `--port`: bind port for http (default `8748`)
 
 For development, clone and `uv sync`, then run `uv run nexrad-mcp`.
 
