@@ -36,11 +36,25 @@ from botocore.exceptions import ClientError
 from .radar import bearing_deg, compass, haversine_km
 
 _MAX_MINUTES = 30
-_GRANULES_PER_MINUTE = 3  # one 20-second granule per ~20s
 _MAX_GRANULES_TO_FETCH = 90  # sample evenly if more than this would apply
+_CACHE_MAX_AGE_SECONDS = 2 * 3600  # evict cached granules older than 2 hours
 
 _DL_DIR = os.path.join(tempfile.gettempdir(), "nexrad_mcp_cache", "glm")
 os.makedirs(_DL_DIR, exist_ok=True)
+
+
+def _evict_stale_granules() -> None:
+    """Delete cached granule files older than _CACHE_MAX_AGE_SECONDS so the
+    cache dir doesn't grow unbounded. Cleanup failure never breaks a query."""
+    try:
+        cutoff = datetime.now(timezone.utc).timestamp() - _CACHE_MAX_AGE_SECONDS
+        for fn in os.listdir(_DL_DIR):
+            path = os.path.join(_DL_DIR, fn)
+            if os.path.getmtime(path) < cutoff:
+                os.remove(path)
+    except OSError:
+        pass
+
 
 _s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED),
                     region_name="us-east-1")
@@ -154,6 +168,7 @@ def get_lightning_activity(lat: float, lon: float, radius_km: float = 50,
     is a normal, good result (no lightning nearby), not an error.
     """
     minutes = max(1, min(minutes, _MAX_MINUTES))
+    _evict_stale_granules()
     bucket, sat_label = _bucket_for(lon)
 
     try:

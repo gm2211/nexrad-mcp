@@ -45,15 +45,6 @@ def _resolve_point(lat: float, lon: float) -> dict:
     }
 
 
-# ISO-8601 duration validTime, e.g. "2026-07-06T04:00:00+00:00/PT3H"
-_VALID_TIME_RE = re.compile(
-    r"^(?P<start>[^/]+)/P(?:T?)(?P<dur>.+)$"
-)
-_DURATION_RE = re.compile(
-    r"(?:(?P<days>\d+)D)?T?(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?"
-)
-
-
 def _parse_iso8601_duration(dur: str) -> timedelta:
     """Parse the duration portion of an ISO-8601 interval, e.g. 'T3H' -> 3h,
     '3H' -> 3h, '1DT2H' -> 1 day 2 hours."""
@@ -167,7 +158,7 @@ def get_thunder_outlook(lat: float, lon: float, hours: int = 12) -> dict:
         every forecast office publishes this element — if absent, the field
         is omitted and thunder_probability_available is set to False so
         callers don't mistake missing data for "no thunder risk."
-      - wind_gust: forecast wind gust (mph) time series.
+      - wind_gust: forecast wind gust (km/h) time series.
       - probability_of_precipitation: percent chance of any precipitation.
 
     As a rule of thumb, probability_of_thunder >= 30% in the next few hours
