@@ -19,6 +19,9 @@ Tools:
   get_l3_value_at_point(site, product, ...) -> VIL / echo tops / precip / HCA
   get_storm_features(site)                  -> storm tracks + mesocyclones
   get_active_warnings(lat, lon)             -> active NWS warnings at a point
+  get_hourly_forecast(lat, lon, ...)        -> NWS hourly forecast
+  get_thunder_outlook(lat, lon, ...)        -> thunder probability + gust/precip series
+  get_lightning_activity(lat, lon, ...)     -> recent GOES GLM flash detections
 
 Sites are 4-letter ICAO IDs, e.g. KLWX (Sterling VA), KOKX (NYC), KFWS (Dallas).
 All data is public (NOAA/Unidata/NWS); no API key required.
@@ -289,6 +292,83 @@ def get_active_warnings(lat: float, lon: float,
     """
     from . import warnings as W
     return W.get_active_warnings(lat, lon, all_events)
+
+
+@mcp.tool()
+def get_hourly_forecast(lat: float, lon: float, hours: int = 12) -> dict:
+    """Get the NWS hourly forecast for a point (api.weather.gov).
+
+    Returns up to `hours` hourly periods (capped at 156, the full length of
+    the NWS hourly series), each with: start_time (ISO-8601), temperature
+    (+ unit, typically F), wind_speed, wind_direction, wind_gust (only
+    present when the forecast office publishes it on this endpoint — most
+    don't; use get_thunder_outlook for a dedicated gust time series),
+    probability_of_precipitation (percent, may be null), and short_forecast
+    (a plain-language one-liner, e.g. "Chance Showers And Thunderstorms").
+
+    This is a general-purpose forecast, not a radar analysis tool — pair it
+    with query_point / check_storms_near for "is it about to storm right
+    now" vs. this for "what's expected over the next several hours."
+
+    Args:
+        lat, lon: point of interest (decimal degrees).
+        hours: how many hourly periods to return (default 12, max 156).
+    """
+    from . import forecast as F
+    return F.get_hourly_forecast(lat, lon, hours)
+
+
+@mcp.tool()
+def get_thunder_outlook(lat: float, lon: float, hours: int = 12) -> dict:
+    """Get thunderstorm probability + wind gust + precip probability series.
+
+    Pulls the raw NWS gridpoint forecast (forecastGridData) rather than the
+    prose hourly forecast, exposing:
+      - probability_of_thunder (percent, hourly buckets): NOT every NWS
+        office publishes this element. If absent, it is omitted from the
+        result and thunder_probability_available is False — that means
+        "unavailable for this office," not "no thunderstorm risk." As a
+        rule of thumb for non-meteorologists: >=30% in the next few hours
+        is worth flagging, >=60% means thunderstorms are more likely than
+        not.
+      - wind_gust (km/h, hourly buckets).
+      - probability_of_precipitation (percent, hourly buckets).
+
+    Args:
+        lat, lon: point of interest (decimal degrees).
+        hours: how many hourly buckets to return from now (default 12, max 156).
+    """
+    from . import forecast as F
+    return F.get_thunder_outlook(lat, lon, hours)
+
+
+@mcp.tool()
+def get_lightning_activity(lat: float, lon: float, radius_km: float = 50,
+                           minutes: int = 10) -> dict:
+    """Check for recent lightning near a point via GOES GLM satellite data.
+
+    Source: NOAA's GOES-19 (GOES-East) or GOES-18 (GOES-West) Geostationary
+    Lightning Mapper (GLM), chosen automatically by longitude. GLM detects
+    TOTAL lightning — both in-cloud and cloud-to-ground flashes, not just
+    cloud-to-ground like older ground-based networks — with roughly 1-2
+    minutes of latency from real time. Its field of view covers the Americas
+    and adjacent oceans; it will NOT see lightning over e.g. Europe or Asia.
+
+    Returns: flash_count and flashes_per_minute within radius_km over the
+    last `minutes`, nearest_flash (distance_km + compass bearing FROM the
+    point), most_recent_flash_utc, granules_checked, which satellite was
+    used, and a plain-language summary (e.g. "no lightning within 50 km in
+    last 10 min" or "active lightning: 12 flashes, nearest 8 km to the SW").
+    A flash_count of 0 with granules_checked > 0 is a normal, good result,
+    not an error — it means the area was checked and is quiet.
+
+    Args:
+        lat, lon: point of interest (decimal degrees).
+        radius_km: search radius around the point (default 50).
+        minutes: how far back to look, in minutes (default 10, max 30).
+    """
+    from . import lightning as LT
+    return LT.get_lightning_activity(lat, lon, radius_km, minutes)
 
 
 def main():
