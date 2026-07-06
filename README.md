@@ -10,7 +10,9 @@ human interrogates in RadarScope:
 - **Level 3** derived products (digital VIL, enhanced echo tops, 1-hour and
   storm-total rainfall, hydrometeor classification, storm cell tracks,
   mesocyclone detections);
-- **Active NWS warnings** for a point.
+- **Active NWS warnings** for a point;
+- **NWS hourly forecasts and thunderstorm outlook** for a point;
+- **Lightning** detection via GOES GLM satellite data.
 
 Unlike weather MCPs that return pre-rendered radar *images*, this decodes the
 actual data with [Py-ART](https://arm-doe.github.io/pyart/) and
@@ -68,6 +70,9 @@ For development, clone and `uv sync`, then run `uv run nexrad-mcp`.
 | `get_l3_value_at_point(site, product, lat, lon)` | VIL / echo tops / rainfall / precip type at this spot | Level 3 |
 | `get_storm_features(site)` | NWS-tracked cells with motion + forecast tracks, mesocyclone detections | Level 3 |
 | `get_active_warnings(lat, lon)` | Any tornado/severe/flood warnings here right now? | api.weather.gov |
+| `get_hourly_forecast(lat, lon, hours=12)` | What's the hourly forecast (temp, wind, precip chance, short description)? | api.weather.gov |
+| `get_thunder_outlook(lat, lon, hours=12)` | What's the hourly thunderstorm probability, wind gust, and precip probability outlook? | api.weather.gov |
+| `get_lightning_activity(lat, lon, radius_km=50, minutes=10)` | Any lightning near me in the last few minutes? | GOES GLM (NOAA, public) |
 
 `site` is a 4-letter radar ID (e.g. `KLWX` = Sterling VA) — use
 `find_nearest_radar` if you don't know it.
@@ -89,7 +94,14 @@ For development, clone and `uv sync`, then run `uv run nexrad-mcp`.
 | TVS (tornado vortex signature) | ❌ product retired by the NWS | — | no fleet-wide NTV data published since before 2025 (verified in-bucket); use mesocyclones + low-CC debris checks + warnings instead |
 | Hail index (HI) | ❌ product retired by the NWS | — | same; hail potential via DVL/EET/HHC |
 | NWS warnings/watches | ✅ `get_active_warnings` | api.weather.gov | radar-relevant filter by default |
-| Lightning | ❌ not included | — | RadarScope's lightning feed is a commercial (paid) source with no public equivalent |
+| Lightning | ✅ `get_lightning_activity` | GOES GLM (NOAA, public) | total lightning (in-cloud + cloud-to-ground), ~1-2 min latency, Americas + adjacent oceans only |
+
+Beyond RadarScope parity — forecasting (RadarScope doesn't do this at all):
+
+| Feature | Surfaced here | Source |
+|---|---|---|
+| Hourly forecast (temp, wind, precip chance) | ✅ `get_hourly_forecast` | api.weather.gov |
+| Thunderstorm probability outlook | ✅ `get_thunder_outlook` | api.weather.gov (gridpoint data) |
 
 ## Data sources
 
@@ -97,7 +109,11 @@ For development, clone and `uv sync`, then run `uv run nexrad-mcp`.
   `nexradaws` index. Decoded with Py-ART.
 - **Level 3**: the public `unidata-nexrad-level3` S3 bucket (anonymous
   access). Decoded with MetPy; scaling cross-checked against Py-ART.
-- **Warnings**: `api.weather.gov` (requires only a User-Agent header).
+- **Warnings, hourly forecast, thunderstorm outlook**: `api.weather.gov`
+  (requires only a User-Agent header).
+- **Lightning**: GOES GLM (Geostationary Lightning Mapper) Level 2 data on
+  the public `noaa-goes19` (GOES-East) and `noaa-goes18` (GOES-West) S3
+  buckets, anonymous access. Decoded with netCDF4.
 
 ## Try it without MCP
 
