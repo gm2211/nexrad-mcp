@@ -9,6 +9,9 @@ dependencies = [
     "nexradaws>=1.1",
     "arm-pyart>=1.18",
     "numpy>=1.24",
+    "boto3>=1.34",
+    "requests>=2.31",
+    "metpy>=1.6",
 ]
 
 [project.scripts]

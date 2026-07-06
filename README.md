@@ -1,79 +1,108 @@
 # nexrad-mcp
 
-An MCP server that gives an AI client (Claude Desktop, Claude Code) direct
-access to **raw NEXRAD Level II dual-pol radar data** — reflectivity, velocity,
-correlation coefficient (CC), differential reflectivity (ZDR), spectrum width —
-queried at any point, straight from NOAA's free public archive on AWS.
+An MCP server that gives an AI client (Claude Desktop, Claude Code, any MCP
+client) direct access to **raw NEXRAD radar data** — the same data classes a
+human interrogates in RadarScope:
+
+- **Level II** dual-pol moments (reflectivity, velocity, CC, ZDR, spectrum
+  width, differential phase, opt-in KDP retrieval), queried at any point, at
+  any tilt, for the latest volume or any archived timestamp;
+- **Level 3** derived products (digital VIL, enhanced echo tops, 1-hour and
+  storm-total rainfall, hydrometeor classification, storm cell tracks,
+  mesocyclone detections);
+- **Active NWS warnings** for a point.
 
 Unlike weather MCPs that return pre-rendered radar *images*, this decodes the
-actual volume with [Py-ART](https://arm-doe.github.io/pyart/), so you can ask
-questions like *"what's the CC over my house right now, and is that a debris
-signature or just clutter?"* — the same interrogation you'd do by hand in
-RadarScope.
+actual data with [Py-ART](https://arm-doe.github.io/pyart/) and
+[MetPy](https://unidata.github.io/MetPy/), so you can ask questions like
+*"what's the CC over my house right now, and is that a debris signature or
+just clutter?"* — the same interrogation you'd do by hand in RadarScope.
 
-## Why it exists
+## Installation
 
-Public radar apps render the data beautifully but don't let a model reason over
-the numbers. The raw feed is free and keyless; the only missing piece was a
-tool layer. That's this.
+Requires [uv](https://docs.astral.sh/uv/). The first run is slow (a minute or
+two): `uvx` resolves and installs Py-ART/MetPy, which pull in scipy and
+friends. Subsequent runs start in seconds from uv's cache.
 
-## Tools
-
-| Tool | What it answers |
-|------|-----------------|
-| `get_latest_scan(site)` | What's the newest volume and how old is it? |
-| `query_point(site, lat, lon)` | What are all products at this exact spot? |
-| `check_storms_near(site, lat, lon, radius_km, dbz_threshold)` | Any cores near me, and which direction? |
-| `estimate_motion(site, lat, lon, radius_km, dbz_threshold)` | Is the nearest storm coming toward me? |
-
-`site` is a 4-letter radar ID (e.g. `KLWX` = Sterling VA). Find yours at
-<https://www.roc.noaa.gov/branches/RDA/wsr88d.php>.
-
-## Install
+**Claude Code**
 
 ```bash
-git clone <your-repo-url> nexrad-mcp
-cd nexrad-mcp
-pip install -e .
+claude mcp add nexrad -- uvx --from git+https://github.com/gm2211/nexrad-mcp nexrad-mcp
 ```
 
-First call downloads a ~10–15 MB volume and imports Py-ART, so it takes a few
-seconds; subsequent calls on the same volume are cached.
-
-## Wire it into Claude Desktop
-
-Add to `claude_desktop_config.json`
+**Claude Desktop** — add to `claude_desktop_config.json`
 (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "nexrad": {
-      "command": "nexrad-mcp"
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/gm2211/nexrad-mcp", "nexrad-mcp"]
     }
   }
 }
 ```
 
-Or with an explicit interpreter path:
+**Any other MCP client** — configure the server command as:
 
-```json
-{
-  "mcpServers": {
-    "nexrad": {
-      "command": "python",
-      "args": ["-m", "nexrad_mcp.server"]
-    }
-  }
-}
+```bash
+uvx --from git+https://github.com/gm2211/nexrad-mcp nexrad-mcp
 ```
 
-Restart Claude Desktop and the four tools appear.
+(stdio transport; no API keys or credentials — all data sources are public.)
+
+For development, clone and `uv sync`, then run `uv run nexrad-mcp`.
+
+## Tools
+
+| Tool | What it answers | Source |
+|------|-----------------|--------|
+| `find_nearest_radar(lat, lon)` | Which radar covers my location? | Py-ART site table |
+| `get_latest_scan(site)` | What's the newest volume and how old is it? | Level II |
+| `query_point(site, lat, lon, ...)` | What are all products at this exact spot? Optional: at a past time (`time_utc`), storm-relative velocity (`storm_motion_deg/kts`), KDP retrieval (`include_kdp`) | Level II |
+| `get_vertical_profile(site, lat, lon, ...)` | What does the storm look like at every height above this spot? Includes composite reflectivity and 18 dBZ echo top | Level II |
+| `check_storms_near(site, lat, lon, ...)` | Any cores near me, and which direction? | Level II |
+| `estimate_motion(site, lat, lon, ...)` | Is the nearest storm coming toward me? | Level II |
+| `list_l3_products(site)` | Which derived products are fresh at this site? | Level 3 |
+| `get_l3_value_at_point(site, product, lat, lon)` | VIL / echo tops / rainfall / precip type at this spot | Level 3 |
+| `get_storm_features(site)` | NWS-tracked cells with motion + forecast tracks, mesocyclone detections | Level 3 |
+| `get_active_warnings(lat, lon)` | Any tornado/severe/flood warnings here right now? | api.weather.gov |
+
+`site` is a 4-letter radar ID (e.g. `KLWX` = Sterling VA) — use
+`find_nearest_radar` if you don't know it.
+
+## RadarScope data-parity coverage
+
+| RadarScope data class | Surfaced here | Source | Notes |
+|---|---|---|---|
+| Base reflectivity / velocity / CC / ZDR / spectrum width | ✅ `query_point`, all tilts via `get_vertical_profile` | Level II | velocity auto-falls back to the Doppler split cut |
+| Differential phase / KDP | ✅ raw PhiDP always; KDP via `include_kdp=True` (Maesaka retrieval, ~3 s) | Level II | |
+| Storm-relative velocity | ✅ `query_point(storm_motion_deg=…, storm_motion_kts=…)` | Level II (computed) | supply storm motion, e.g. from `get_storm_features` |
+| Composite reflectivity, echo tops | ✅ `get_vertical_profile` (computed) + `EET` product | Level II + Level 3 | |
+| Digital VIL (DVL) | ✅ `get_l3_value_at_point("DVL")` | Level 3 | kg/m² |
+| Enhanced echo tops (EET) | ✅ `get_l3_value_at_point("EET")` | Level 3 | kft, with "capped" flag |
+| 1-hour / storm-total precip (DAA/DTA) | ✅ `get_l3_value_at_point` | Level 3 | inches, dual-pol QPE |
+| Hydrometeor classification (HHC) | ✅ `get_l3_value_at_point("HHC")` | Level 3 | text class (rain/hail/snow/…) |
+| Storm tracks (STI) | ✅ `get_storm_features` | Level 3 (NST) | position, motion vector, past + forecast track |
+| Mesocyclone (MD) | ✅ `get_storm_features` | Level 3 (NMD) | detections with lat/lon |
+| TVS (tornado vortex signature) | ❌ product retired by the NWS | — | no fleet-wide NTV data published since before 2025 (verified in-bucket); use mesocyclones + low-CC debris checks + warnings instead |
+| Hail index (HI) | ❌ product retired by the NWS | — | same; hail potential via DVL/EET/HHC |
+| NWS warnings/watches | ✅ `get_active_warnings` | api.weather.gov | radar-relevant filter by default |
+| Lightning | ❌ not included | — | RadarScope's lightning feed is a commercial (paid) source with no public equivalent |
+
+## Data sources
+
+- **Level II**: NOAA Open Data volumes on AWS S3, discovered via the
+  `nexradaws` index. Decoded with Py-ART.
+- **Level 3**: the public `unidata-nexrad-level3` S3 bucket (anonymous
+  access). Decoded with MetPy; scaling cross-checked against Py-ART.
+- **Warnings**: `api.weather.gov` (requires only a User-Agent header).
 
 ## Try it without MCP
 
 ```bash
-python -c "from nexrad_mcp import radar as R; \
+uv run python -c "from nexrad_mcp import radar as R; \
 import json; print(json.dumps(R.query_point('KLWX', 38.905, -78.235), indent=2))"
 ```
 
@@ -82,25 +111,24 @@ import json; print(json.dumps(R.query_point('KLWX', 38.905, -78.235), indent=2))
 Each call lists the current UTC day's volumes for the site via the `nexradaws`
 index (the main archive bucket blocks anonymous listing, so we go through the
 index rather than raw S3), grabs the newest `*_V06` key, downloads it, and
-decodes the 0.5° sweep. A completed volume in VCP 212 lands every ~4–6 minutes,
-so re-querying more often than ~30–60s just returns the same file. `_load_sweep0`
-is LRU-cached so repeated queries on one volume don't re-decode.
-
-For sub-minute liveness you'd move to the real-time *chunk* feed
-(`unidata-nexrad-level2-chunks`) plus SNS push, which reassembles partial sweeps
-mid-scan — more complex, and not needed for point queries.
+decodes it. A completed volume in VCP 212 lands every ~4–6 minutes, so
+re-querying more often than ~30–60s just returns the same file. Volume loads
+are LRU-cached so repeated queries on one volume don't re-decode. Level 3
+products update on a similar cadence and are fetched by day-prefixed key
+listing (the bucket is a flat namespace, `SSS_PPP_YYYY_MM_DD_HH_MM_SS`).
 
 ## Caveats
 
 - **Not for life-safety.** This is an analysis aid. For warnings, always use
-  NWS / official sources. The tool surfaces numbers; interpreting a debris
-  signature vs. clutter still needs judgment (which is exactly why it pairs well
-  with an LLM that can weigh reflectivity + velocity + CC together).
-- 0.5° tilt only. Higher tilts and derived products (SRV, rotation) are a
-  straightforward extension.
-- Beam height rises with range: at 100+ km the beam is well above ground, so a
-  clean surface reading is best within ~60–80 km of the radar.
+  NWS / official sources (`get_active_warnings` surfaces exactly those). The
+  tools return numbers; interpreting a debris signature vs. clutter still
+  needs judgment (which is exactly why it pairs well with an LLM that can
+  weigh reflectivity + velocity + CC together).
+- Beam height rises with range: at 100+ km the lowest tilt is well above
+  ground, so a clean surface reading is best within ~60–80 km of the radar.
+  `get_vertical_profile` reports the actual beam height of every sample.
+- Radar-estimated rainfall (DAA/DTA) is an estimate; gauges beat radar.
 
 ## License
 
-MIT. NEXRAD data is public domain (NOAA).
+MIT. NEXRAD data is public domain (NOAA); Level 3 mirror courtesy of Unidata.
