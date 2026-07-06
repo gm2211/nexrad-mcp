@@ -223,7 +223,11 @@ def get_l3_grid_value(site: str, product: str, lat: float, lon: float) -> dict:
                 "error": "no recent data (today/yesterday UTC) in archive"}
 
     f = _parse(key)
-    layer = _radial_layer(f)
+    try:
+        layer = _radial_layer(f)
+    except (ValueError, KeyError):
+        return {"error": f"product {product} for {site.upper()} has no "
+                         "decodable radial data"}
     raw = np.array(layer["data"])
     mapped = f.map_data(raw)
     topped = None

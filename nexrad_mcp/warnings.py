@@ -44,14 +44,17 @@ def get_active_warnings(lat: float, lon: float, all_events: bool = False) -> dic
     active alerts of the requested kind cover this point right now — that is
     a normal, good result, not an error.
     """
-    resp = requests.get(
-        _BASE_URL,
-        params={"point": f"{lat},{lon}"},
-        headers={"User-Agent": _USER_AGENT},
-        timeout=15,
-    )
-    resp.raise_for_status()
-    data = resp.json()
+    try:
+        resp = requests.get(
+            _BASE_URL,
+            params={"point": f"{lat},{lon}"},
+            headers={"User-Agent": _USER_AGENT},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as e:
+        return {"error": f"could not fetch alerts from api.weather.gov: {e}"}
 
     alerts = []
     for feature in data.get("features", []):
