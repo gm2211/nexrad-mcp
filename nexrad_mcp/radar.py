@@ -225,6 +225,20 @@ def _load_sweep0(key: str):
     return radar.extract_sweeps([0])
 
 
+@lru_cache(maxsize=4)
+def _load_sweep(key: str, idx: int):
+    """Load a volume and return one sweep by index as a Py-ART radar.
+
+    Used for the Doppler split cut: in NEXRAD volume coverage patterns the
+    lowest elevation is scanned twice — sweep 0 (surveillance cut) carries
+    reflectivity/dual-pol fields, sweep 1 (Doppler cut, same elevation)
+    carries velocity and spectrum width.
+    """
+    fp = _download(key)
+    radar = _pa().io.read_nexrad_archive(fp)
+    return radar.extract_sweeps([idx])
+
+
 @lru_cache(maxsize=2)
 def _load_volume(key: str):
     """Load and return the full Py-ART radar object (all sweeps/tilts).
@@ -337,6 +351,30 @@ def query_point(site: str, lat: float, lon: float,
         else:
             values[label] = None
 
+    # Split-cut fallback: at the lowest elevation NEXRAD scans twice — the
+    # surveillance cut (sweep 0) has no usable velocity, the Doppler cut
+    # (sweep 1, same elevation) does. If velocity is missing here, sample
+    # the Doppler cut at the same point.
+    velocity_source = None
+    if values.get("velocity") is None:
+        try:
+            dop = _load_sweep(key, 1)
+            dlat = dop.gate_latitude["data"]
+            dlon = dop.gate_longitude["data"]
+            didx = np.unravel_index(
+                np.argmin((dlat - lat) ** 2 + (dlon - lon) ** 2), dlat.shape
+            )
+            for label in ("velocity", "spectrum_width"):
+                fld = FIELDS[label][0]
+                if values.get(label) is None and fld in dop.fields:
+                    v = dop.fields[fld]["data"][didx]
+                    if not np.ma.is_masked(v):
+                        values[label] = round(float(v), 2)
+                        velocity_source = ("Doppler split cut (sweep 1, "
+                                           "same elevation)")
+        except Exception:
+            pass  # volume with a single sweep, or download hiccup
+
     result = {
         "site": site.upper(),
         "filename": key.split("/")[-1],
@@ -347,6 +385,8 @@ def query_point(site: str, lat: float, lon: float,
         "values": values,
         "interpretation": _interpret(values),
     }
+    if velocity_source:
+        result["velocity_source"] = velocity_source
 
     if storm_motion_deg is not None and storm_motion_kts is not None:
         vel = values.get("velocity")
