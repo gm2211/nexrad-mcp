@@ -1,0 +1,22 @@
+[project]
+name = "nexrad-mcp"
+version = "0.1.0"
+description = "MCP server exposing raw NEXRAD Level II dual-pol radar analysis to AI clients"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.2.0",
+    "nexradaws>=1.1",
+    "arm-pyart>=1.18",
+    "numpy>=1.24",
+]
+
+[project.scripts]
+nexrad-mcp = "nexrad_mcp.server:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["nexrad_mcp"]
