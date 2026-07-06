@@ -324,7 +324,7 @@ def _parse_sti_sym(f) -> list[dict]:
     clat = f.prod_desc.lat / 1000.0
     clon = f.prod_desc.lon / 1000.0
     current: dict | None = None
-    for layer in f.sym_block or []:
+    for layer in getattr(f, "sym_block", None) or []:
         for item in layer:
             if not isinstance(item, dict):
                 continue
@@ -391,7 +391,7 @@ def get_l3_storm_features(site: str) -> dict:
         found = []
         clat = f.prod_desc.lat / 1000.0
         clon = f.prod_desc.lon / 1000.0
-        for layer in f.sym_block or []:
+        for layer in getattr(f, "sym_block", None) or []:
             for item in layer:
                 if isinstance(item, dict) and "x" in item and "y" in item:
                     la, lo = _km_offset_to_latlon(clat, clon,
