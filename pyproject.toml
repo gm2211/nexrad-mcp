@@ -3,7 +3,7 @@ name = "nexrad-mcp"
 version = "0.2.0"
 description = "MCP server exposing raw NEXRAD Level II dual-pol radar analysis to AI clients"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "mcp>=1.2.0",
     "nexradaws>=1.1",
